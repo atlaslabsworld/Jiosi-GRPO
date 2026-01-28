@@ -85,7 +85,7 @@ This distinction is not cosmetic. The KL divergence is an expectation over the *
 
 \subsubsection{Trust-Region Methods}
 \label{subsubsec:trust_region_methods}
-In Trust-Region Policy Optimization (TRPO), this idea appears as a constraint or penalty that limits how far an updated policy may drift from a reference distribution. Abstractly, such updates take the form
+In Trust-Region Policy Optimization (TRPO), this idea appears as a constraint or penalty that limits how far an updated policy may drift from a reference distribution. Abstractly, such updates under the rollout assume the form
 \[
     \max_{\theta}\; \EX_{s,a\sim \pi_{\theta_{\mathrm{old}}}}\!\big[\rho(\theta)\,A(s,a)\big]
     \quad\text{s.t.}\quad
@@ -112,7 +112,7 @@ GRPO evaluates this log-ratio under samples drawn from the behavior policy $\pi_
     s \sim d^{\pi_{\theta}},\; a \sim \pi_{\theta}(a\vert s)
 \]
 
-the result is the regularization term in GRPO is not a KL divergence in the strict sense. It is a pointwise log-ratio penalty evaluated under an off-policy distribution.
+the result is that GRPO's regularization term is not a KL divergence in the strict sense. It is a pointwise log-ratio penalty evaluated under an off-policy distribution.
 
 This mirrors the approximation already employed in PPO, where trust-region behavior arises from clipping or auxiliary KL monitoring rather than from optimizing a true KL-constrained objective. DeepSeek’s formulation implicitly assumes this same identification, treating the off-policy expectation as if it were taken under the current policy, even though this assumption is never stated explicitly.
 
@@ -194,7 +194,7 @@ In short, GRPO inherits PPO's stability heuristics but not its theoretical KL in
     $$
     and labels it an estimator of $D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})$ \cite{deepseek2025r1}.
 
-    This expression corresponds to the convex dual form of the KL divergence and is an unbiased estimator \textit{only} when the expectation is taken under the state-action visitation distribution induced by $\pi_\theta$.
+    This expression corresponds to a variational convex-analytic representation of the KL divergence and yields an unbiased estimator \textit{only} when the expectation is taken under the state-action visitation distribution induced by $\pi_\theta$.
     That is to say, the KL divergence only holds under expectation with respect to the target distribution.
 
     \subsection{Off-Policy Sampling Breaks DeepSeek's Unbiasedness Claim}
