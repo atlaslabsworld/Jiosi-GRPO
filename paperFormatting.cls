@@ -198,7 +198,7 @@
 \begin{singlespacing}
 
     \copyright \ \@copyrightyear \ \@author\\
-    % \textit{Preprint DOI: \url{}}
+    \textit{Preprint DOI: \url{https://doi.org/10.5281/zenodo.18396691}}
 
 \end{singlespacing}
 \end{center}
