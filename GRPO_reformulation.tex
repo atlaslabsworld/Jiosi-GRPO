@@ -15,7 +15,7 @@
 
     Group Relative Policy Optimization (GRPO) is a group-normalized policy-gradient objective made popular by DeepSeek's 2024 paper \cite{shao2024deepseekmath}.
     The core idea is to replace a single-sample advantage estimate with a \textit{relative} advantage computed within a small group of candidate actions, or trajectories, conditioned on the same context, for example the same state or the same initial seeded state.
-    This yields a variance-reduced learning signal while retaining the same fundamental policy-gradient structure used in trust-region style policy optimization, for example PPO-style clipped objectives and KL-anchored updates.
+    This yields a variance-reduced learning signal while retaining the same fundamental policy-gradient structure used in trust-region style policy optimization, for example Proximal Policy Optimization (PPO)-style clipped objectives and KL-anchored updates.
 
     This analysis concerns the interpretation and notation of the GRPO objective rather than its empirical performance. The method itself is not claimed to be incorrect; rather, the focus is on how its regularization term is framed and justified relative to standard policy-gradient and trust-region formulations.
 
@@ -27,7 +27,7 @@
     $
     and define the group-relative advantage
     $$
-        \hat{A}_i \approx r(s,a_i) - \bar{r}(s)
+        \hat{A}_i \doteq r(s,a_i) - \bar{r}(s)
         \implies \qquad
         \tilde{A}_i \approx \frac{\hat{A}_i}{\sum_r(s) + \epsilon}
         \implies \qquad
@@ -38,126 +38,133 @@
 
     As in standard importance-weighted policy-gradient updates, including TRPO/PPO-style implementations, the importance sampling ratio is taken with respect to the behavior policy:
     $$
-        \rho_i(\theta) \approx \frac{\pi_{\theta}(a_i\vert s)}{\pi_{\theta_{\mathrm{old}}}(a_i\vert s)}.
+        \rho_i(\theta) \approx \frac{\pi_{\theta}(a_i\vert s)}{\pi_{\theta_{\mathrm{old}}}(a_i\vert s)}
     $$
 
     This ratio plays the same mechanical role as in PPO; no novel estimator is introduced at this stage.
 
     Separately, GRPO introduces an additional reference-anchored log-ratio term, which is \textit{not} the PPO importance ratio:
     $$
-        \ell_i(\theta) \approx \log \pi_{\theta}(a_i\vert s) - \log \pi_{\mathrm{ref}}(a_i\vert s).
+        \ell_i(\theta) \approx \log \pi_{\theta}(a_i\vert s) - \log \pi_{\mathrm{ref}}(a_i\vert s)
     $$
 
-    \subsection{KL divergence \& Trust-Region Updates}
+    \subsection{KL Divergence, Trust Regions, and What GRPO Actually Optimizes}
     \label{subsec:kl_trust_region_context}
 
-    This subsection provides the formal grounding required to interpret the GRPO objective where the role of KL-based stability constraints is made explicit.
+Policy-gradient methods are known to be unstable when policy updates are too large; even a single step that substantially alters the action distribution can degrade performance or collapse training. A common stabilization strategy is therefore to constrain successive policies to remain close in distribution, most often through a Kullback--Leibler (KL) divergence penalty or constraint.
 
-    Policy-gradient methods can become unstable when the policy update is too large; a single bad step can dramatically change the action distribution and degrade performance.
-    A common stabilization approach is to keep the updated policy close to a reference distribution, often the previous policy $\pi_{\theta_{\mathrm{old}}}$ or a fixed reference policy $\pi_{\mathrm{ref}}$.
+The KL divergence between two distributions $P$ and $Q$ is defined as
+\begin{equation}
+    D_{\mathrm{KL}}(P\Vert Q)
+    \doteq
+    \EX_{x}\!\left[\log\left(\frac{P(x)}{Q(x)}\right)\right]
+    \quad\backepsilon\quad
+    x \sim P
+    \label{eq:KL_divergence}
+\end{equation}
 
-    The standard measure used to quantify distributional change is the Kullback-Leibler (KL) divergence, a relative-entropy functional:
-    \begin{equation}
-        D_{\mathrm{KL}}(P\Vert Q)
-        \doteq
-        \EX_{x\sim P}\!\left[\log\left(\frac{P(x)}{Q(x)}\right)\right],
-        \label{eq:KL_divergence}
-    \end{equation}
+Crucially, this quantity is only a KL divergence when the expectation is taken under the same distribution whose deviation is being measured. If the expectation is taken under a different distribution, the expression remains a log-ratio, but it no longer corresponds to a KL divergence in the information-theoretic sense.
 
-    As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this definition is only meaningful as a divergence when the expectation is taken under the same distribution whose deviation is being measured. When this expectation is replaced by off-policy sampling, the expression no longer represents a KL divergence in the information-theoretic sense, even though the pointwise logarithmic form remains unchanged.
+For notational clarity, we define the conditional action distribution
+\[
+    \pi_{\theta}^s(a) \doteq \pi_{\theta}(a\vert s),
+\]
+so that KL divergences between policies conditioned on the same context may be written without ambiguity.
 
-    For policies conditioned on context $s$,
-    \[
-        D_{\mathrm{KL}}\!\left(\pi_{\theta}(\cdot\vert s)\,\Vert\,\pi_{\mathrm{ref}}(\cdot\vert s)\right)
-        =
-        \EX_{a\sim \pi_{\theta}(\cdot\vert s)}\!\left[
-            \log\frac{\pi_{\theta}(a\vert s)}{\pi_{\mathrm{ref}}(a\vert s)}
-        \right].
-    \]
-
-    A \emph{trust-region style} update can be stated abstractly as maximizing a surrogate improvement term while constraining KL drift, for example
-    \[
-        \max_{\theta}\;\EX_{s,a\sim \pi_{\theta_{\mathrm{old}}}}\!\big[\rho(\theta)\,A(s,a)\big]
-        \quad\text{s.t.}\quad
-        \EX_{s}\!\left[D_{\mathrm{KL}}\!\left(\pi_{\theta}(\cdot\vert s)\,\Vert\,\pi_{\theta_{\mathrm{old}}}(\cdot\vert s)\right)\right] \le \delta,
-    \]
-    or equivalently by moving the constraint into the objective as a penalty under a matching expectation.
-    PPO-style algorithms approximate this behavior in practice via clipping and, optionally, by monitoring or penalizing KL.
-
-    The GRPO term $\ell_i(\theta)$ is a \emph{pointwise} log-likelihood ratio random variable:
-    it becomes a KL divergence only after taking an expectation under the action distribution of the policy in the numerator.
-    This distinction is exactly what matters when one later claims ``KL regularization'' while sampling actions under a different policy.
-
-    This mirrors the approximation already employed in PPO, where the KL term is used as a trust-region heuristic rather than as an unbiased estimator under the target policy measure. In both cases, stability arises from conservative updates rather than from exact optimization of a KL-constrained objective.
-
-    Rewriting DeepSeek's GRPO objective to make its assumptions explicit, and placing it side-by-side with the PPO surrogate objective, one obtains:
-    
-    \begin{equation}
-        \mathcal{J}_{\mathrm{GRPO}}(\theta)
-        \approx
-        \EX_{s, a_{1:G}\vert \pi_{\theta_{\mathrm{old}}}}
-        \left[
-            \frac{1}{G}\sum_{i=1}^{G}
-            \left(
-                \rho_i(\theta)\,\tilde{A}_i
-                -
-                \beta\,\ell_i(\theta)
-            \right)
+For policies conditioned on context $s$, this specialization takes the form
+\begin{equation}
+    D_{\mathrm{KL}}\!\left(\pi_{\theta}^s\,\Vert\,\pi_{\mathrm{ref}}^s\right)
+    =
+    \EX_{a\sim \pi_{\theta}^s}\!\left[
+        \log\frac{\pi_{\theta}^s(a)}{\pi_{\mathrm{ref}}^s(a)}
         \right]
-        \label{eq:grpo_obj}
-    \end{equation}
+    \label{eg:kl_divergence_conditional}
+\end{equation}
 
-    where $\theta_{\mathrm{old}}$ denotes the behavior policy used to sample the group, and $\beta>0$ is a regularization weight.
+This distinction is not cosmetic. The KL divergence is an expectation over the *current* policy, and its interpretation depends entirely on that choice of measure.
 
-    While \hyperref[eq:grpo_obj]{Eq.~\eqref{eq:grpo_obj}} is commonly described as KL-regularized, the regularization term as it appears is a pointwise log-ratio surrogate rather than an actual Kullback-Leibler divergence in the strictest sense as composed in DeepSeek's R1 paper \cite{deepseek2025r1}.
+\subsubsection{Trust-Region Methods}
+\label{subsubsec:trust_region_methods}
+In Trust-Region Policy Optimization (TRPO), this idea appears as a constraint or penalty that limits how far an updated policy may drift from a reference distribution. Abstractly, such updates take the form
+\[
+    \max_{\theta}\; \EX_{s,a\sim \pi_{\theta_{\mathrm{old}}}}\!\big[\rho(\theta)\,A(s,a)\big]
+    \quad\text{s.t.}\quad
+    \EX_{s}\!\left[D_{\mathrm{KL}}\!\left(\pi_{\theta}(a\vert s)\,\Vert\,\pi_{\theta_{\mathrm{old}}}(a\vert s)\right)\right] \le \delta
+\]
 
-    Two remarks are important for correct interpretation. First, $\ell_i(\theta)$ is a pointwise log-likelihood ratio and \textit{not} itself a KL divergence.
-    Recall from \hyperref[eq:KL_divergence]{KL divergence} that the KL divergence is an expectation over the policy's action distribution conditioned on context:
-    $$
-        D_{\mathrm{KL}}\!\left(\pi_{\theta}\,\Vert\,\pi_{\mathrm{ref}}\right)
-        \approx
-        \EX_{s, a\vert \pi_{\theta}}\!\left[\log\left(\frac{\pi_{\theta}(a\vert s)}{\pi_{\mathrm{ref}}(a\vert s)}\right)\right]
-        =
-        \EX_{s, a\vert \pi_{\theta}}\!\left[\ell(\theta)\right]
-    $$
-    Thus, adding $-\beta\,\ell_i(\theta)$ to the per-sample objective can be viewed as a stochastic estimator of a KL-type regularizer only after taking an appropriate expectation but when taken pointwise, it is simply a log-ratio penalty whose interpretation depends entirely on how the expectation is taken, as formalized in \hyperref[sec:GRPO_reformulation]{Section~\getrefnumber{sec:GRPO_reformulation}: \nameref*{sec:GRPO_reformulation}}.
+In practice, PPO does not solve this constrained optimization problem directly. Instead, it approximates trust-region behavior through clipping and, optionally, by monitoring or penalizing the empirical KL divergence. The resulting update is heuristic but effective: stability arises from small policy steps rather than from exact enforcement of a KL constraint.
 
-    \medskip
-    \noindent\textbf{And this is the critical point:}
-    GRPO's regularization term is mathematically a pointwise log-ratio penalty evaluated under an off-policy distribution. It only becomes a KL divergence after taking an expectation under the current policy, which the algorithm does not perform. The method remains effective in practice, but the interpretation as KL-regularized optimization is formally incorrect.
-    \medskip
+\subsubsection{What GRPO Inherits From PPO}
+\label{subsubsec:GRPO_inherits_PPO}
+GRPO introduces a reference-anchored log-ratio term
+\[
+    \ell_i(\theta) \doteq \log \pi_{\theta}(a_i\vert s) - \log \pi_{\mathrm{ref}}(a_i\vert s)
+\]
+which is a pointwise random variable. By itself, this quantity is not a KL divergence. It becomes one only after taking an expectation under the same policy that appears in the numerator.
 
-    As detailed in \hyperref[sec:GRPO_reformulation]{Section~\ref{sec:GRPO_reformulation}}, this is better understood as the use of a stability proxy under imperfect modeling assumptions rather than as a literal failure of KL-regularized policy optimization.
-    The method does not fail; rather, the KL terminology obscures the deeper point: the written objective is a proxy for stability, not a literal instantiation of a KL-constrained optimization problem.
+\subsubsection{Where GRPO Breaks}
+\label{subsubsec:GRPO_breaks}
+GRPO evaluates this log-ratio under samples drawn from the behavior policy $\pi_{\theta_{\mathrm{old}}}$ rather than from the current policy $\pi_{\theta}$. When written explicitly as 
+\[
+    \EX_{s, a \vert \pi_{\theta_{\mathrm{old}}}}
+    \left[\log\left(\frac{\pi_{\theta}(a\vert s)}{\pi_{\mathrm{ref}}(a\vert s)}\right)\right]
+    \quad\backepsilon\quad
+    s \sim d^{\pi_{\theta}},\; a \sim \pi_{\theta}(a\vert s)
+\]
 
-    Secondly, GRPO is closely related to PPO-style trust-region optimization. If one introduces PPO clipping on the ratio, one obtains the clipped surrogate:
-    
-    $ \mathcal{J}_{\mathrm{GRPO\text{-}clip}}(\theta) \approx $
-    \\
-    $$
-        \EX_{s, a_{1:G}\vert \pi_{\theta_{\mathrm{old}}}}
-        \left[
-            \frac{1}{G}\sum_{i=1}^{G}
-            \min\!\Big(\rho_i(\theta)\,\tilde{A}_i,\;
-            \mathrm{clip}\big(\rho_i(\theta),1-\varepsilon,1+\varepsilon\big)\,\tilde{A}_i\Big)
+the result is the regularization term in GRPO is not a KL divergence in the strict sense. It is a pointwise log-ratio penalty evaluated under an off-policy distribution.
+
+This mirrors the approximation already employed in PPO, where trust-region behavior arises from clipping or auxiliary KL monitoring rather than from optimizing a true KL-constrained objective. DeepSeek’s formulation implicitly assumes this same identification, treating the off-policy expectation as if it were taken under the current policy, even though this assumption is never stated explicitly.
+
+\subsubsection{GRPO's Objective Reformulated}
+\label{subsubsec:GRPO_objective_reformulated}
+Rewriting DeepSeek's GRPO objective to make its assumptions explicit, and placing it side-by-side with the PPO surrogate objective, one obtains:
+
+\begin{equation}
+    \mathcal{J}_{\mathrm{GRPO}}(\theta)
+    \approx
+    \EX_{s, a_{1:G}\vert \pi_{\theta_{\mathrm{old}}}}
+    \left[
+        \frac{1}{G}\sum_{i=1}^{G}
+        \left(
+            \rho_i(\theta)\,\tilde{A}_i
             -
             \beta\,\ell_i(\theta)
-        \right]
-    $$
-    recalling $\varepsilon>0$ is the PPO clipping parameter.
+        \right)
+    \right]
+    \label{eq:grpo_obj}
+\end{equation}
 
-    \subsection{PPO vs GRPO}
-    \label{subsec:PPO_vs_GRPO}
+where $\theta_{\mathrm{old}}$ denotes the behavior policy used to sample the group, and $\beta>0$ is a regularization weight \cite{deepseek2025r1}.
 
-    GRPO retains the core PPO mechanisms under the hood.
-    The update still uses importance sampling ratios, a clipped surrogate objective function, and trust-region like behavior that keeps steps small in practice.
+If one introduces PPO-style clipping on the ratio, one obtains the clipped surrogate:
 
-    The substantive difference lies in GRPO removing the learned value function by replacing generalized advantage estimation style advantage estimation with group-normalized rewards, hence the nomenclature paradigm \textit{Group Relative Policy Optimization}.
+\begin{equation}
+    \mathcal{J}_{\mathrm{GRPO\text{-}clip}}(\theta)
+    \approx
+    \EX_{s, a_{1:G}\vert \pi_{\theta_{\mathrm{old}}}}
+    \left[
+        \frac{1}{G}\sum_{i=1}^{G}
+        \min\!\Big(\rho_i(\theta)\,\tilde{A}_i,\;
+        \mathrm{clip}\big(\rho_i(\theta),1-\varepsilon,1+\varepsilon\big)\,\tilde{A}_i\Big)
+        -
+        \beta\,\ell_i(\theta)
+    \right]
+\end{equation}
 
-    The trade-off is theoretical clarity for lower variance and reduced resource use, which is a reasonable computational engineering choice, but it weakens the clean interpretation of the regularizer as a KL penalty when combined with off-policy sampling like PPO maintains and enjoys.
+recalling $\varepsilon>0$ is the PPO clipping parameter.
 
-    The empirical effectiveness of GRPO likely arises from small policy updates, comparative reward modeling, and the surrounding training pipeline rather than from the theoretical properties of the regularization term itself.
-    A more accurate characterization would describe GRPO as PPO with group-based advantage estimation and heuristic entropy-style regularization, rather than as a clean KL-regularized objective.
+\subsubsection{PPO vs GRPO}
+\label{subsubsec:PPO_vs_GRPO}
+GRPO retains the core PPO mechanisms under the hood. The update still uses importance sampling ratios, a clipped surrogate objective function, and trust-region like behavior that keeps steps small in practice.
+
+The substantive difference lies in GRPO removing the learned value function by replacing generalized advantage estimation style advantage estimation with group-normalized rewards, hence the nomenclature paradigm \textit{Group Relative Policy Optimization}.
+
+The trade-off is theoretical clarity for lower variance and reduced resource use, which is a reasonable computational engineering choice, but it weakens the clean interpretation of the regularizer as a KL penalty when combined with off-policy sampling.
+
+The empirical effectiveness of GRPO likely arises from small policy updates, comparative reward modeling, and the surrounding training pipeline rather than from the theoretical properties of the regularization term itself.
+
+In short, GRPO inherits PPO's stability heuristics but not its theoretical KL interpretation.
 
 \section{DeepSeek's Problematic GRPO Notation: A Novel Analysis}
 \label{sec:GRPO_reformulation}
@@ -167,23 +174,14 @@
 
     DeepSeek describes GRPO as a KL-regularized variant of PPO.
     While the algorithm is empirically effective, the formulation conflates several distinct quantities, leading to a misleading interpretation of the regularization term as written in the paper.
-    This section should be read as a concrete instantiation of the modeling/notation lens developed in Warren Powell's Unified Decision Analysis Framework \cite{powell2022unified}.
 
     \subsection{\texorpdfstring{Pointwise Log-Ratios $\not\doteq$ KL Divergences}{Pointwise Log-Ratios are not KL Divergences}}
     \label{sec:grpo_pointwise}
 
-    Recall: the Kullback-Leibler divergence between two policies $\pi_\theta$ and $\pi_{\mathrm{ref}}$
-    $$
-    D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
-    =
-    \EX_{s, a\vert \pi_\theta}
-    \left[
-    \log\left(\frac{\pi_\theta(a\vert s)}{\pi_{\mathrm{ref}}(a\vert s)}\right)
-    \right]
-    $$
-
-    Without the expectation under $\pi_\theta$, the quantity $\log\left(\frac{\pi_\theta}{\pi_{\mathrm{ref}}}\right)$ is merely a log-likelihood ratio random variable.
-    Referring to a single-sample realization of this ratio as ``the KL'' is misleading at best and formally incorrect at worst.
+    This is the key distinction: a log-ratio evaluated at a single sample is not a divergence, but merely a scalar random variable.
+    Recall the Kullback-Leibler divergence definition between two policies $\pi_\theta$ and $\pi_{\mathrm{ref}}$ in \eqref{eg:kl_divergence_conditional}: without the expectation under $\pi_\theta$, 
+    the quantity $\log\!\left(\frac{\pi_\theta}{\pi_{\mathrm{ref}}}\right)$ is simply a log-likelihood ratio.
+    DeepSeek's reference to a single-sample realization of this ratio as ``the KL'' is misleading at best and formally incorrect at worst.
 
     DeepSeek-R1 instead introduces the nonnegative function
     $$
@@ -194,14 +192,15 @@
     \right)
     -1
     $$
-    and labels it an estimator of $D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})$.
+    and labels it an estimator of $D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})$ \cite{deepseek2025r1}.
 
     This expression corresponds to the convex dual form of the KL divergence and is an unbiased estimator \textit{only} when the expectation is taken under the state-action visitation distribution induced by $\pi_\theta$.
+    That is to say, the KL divergence only holds under expectation with respect to the target distribution.
 
     \subsection{Off-Policy Sampling Breaks DeepSeek's Unbiasedness Claim}
     \label{sec:grpo_offpolicy}
 
-    In GRPO, the expectation is taken under $\EX_{s, a\vert \pi_{\theta_{\mathrm{old}}}}$ rather than $\EX_{s, a\vert \pi_{\theta}}$ such that the KL surrogate is inserted into the objective without importance weighting.
+    In GRPO, the expectation is taken under $\EX_{s, a \sim \pi_{\theta_{\mathrm{old}}}}$ rather than $\EX_{s, a \sim \pi_{\theta}}$ such that the KL surrogate is inserted into the objective without importance weighting.
 
     Consequently, three critical issues arise.
 
