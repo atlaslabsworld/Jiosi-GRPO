@@ -1,0 +1,12 @@
+Group Relative Policy Optimization (GRPO) can be viewed as a PPO-style policy-gradient update in which the advantage signal is constructed from within-group comparisons rather than from a learned value baseline. 
+This paper reformulates DeepSeek's GRPO objective to make explicit the distinction between
+
+  \begin{enumerate}[label=(\roman*)]
+    \item the PPO/TRPO importance ratio used for off-policy correction 
+    \item the reference-anchored pointwise log-ratio term that is often described as a KL regularizer
+  \end{enumerate}
+  
+  This paper's central claim is not that GRPO is empirically ineffective; rather, under the expectation actually used in the algorithm, the regularization term is a stability proxy and does not literally instantiate KL-regularized optimization. 
+  DeepSeek-R1's presentation therefore conflates a heuristic penalty with a KL-regularized objective as written in their published paper, even though the resulting training procedure can still work well in practice.
+  
+  Broadly, this paper isolates the mechanics of Group Relative Policy Optimization (GRPO) and reformulates the objective function in a way that makes the role of the reference-policy penalty explicit.
