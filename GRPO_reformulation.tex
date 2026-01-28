@@ -39,16 +39,18 @@
     Next, we define a behavior policy $\pi_{\theta_{\mathrm{old}}}$ and a fixed reference policy $\pi_{\mathrm{ref}}$.
 
     As in standard importance-weighted policy-gradient updates, including TRPO/PPO-style implementations, the importance sampling ratio is taken with respect to the behavior policy:
-    $$
+    \begin{equation}
         \rho_i(\theta) \approx \frac{\pi_{\theta}(a_i\vert s)}{\pi_{\theta_{\mathrm{old}}}(a_i\vert s)}
-    $$
+        \label{eq:importance_ratio}
+    \end{equation}
 
     This ratio plays the same mechanical role as in PPO; no novel estimator is introduced at this stage.
 
     Separately, GRPO introduces an additional reference-anchored log-ratio term, which is \textit{not} the PPO importance ratio:
-    $$
+    \begin{equation}
         \ell_i(\theta) \approx \log \pi_{\theta}(a_i\vert s) - \log \pi_{\mathrm{ref}}(a_i\vert s)
-    $$
+        \label{eq:grpo_log_ratio}
+    \end{equation}
 
     \subsection{KL Divergence, Trust Regions, and What GRPO Actually Optimizes}
     \label{subsec:kl_trust_region_context}
@@ -90,7 +92,7 @@ This distinction is not cosmetic. The KL divergence is an expectation over the *
 In Trust-Region Policy Optimization (TRPO), this idea appears as a constraint or penalty that limits how far an updated policy may drift from a reference distribution. Abstractly, such updates under the rollout assume the form
 \[
     \max_{\theta}\; \EX_{s,a\sim \pi_{\theta_{\mathrm{old}}}}\!\big[\rho(\theta)\,A(s,a)\big]
-    \quad\text{s.t.}\quad
+    \quad \backepsilon \quad
     \EX_{s}\!\left[D_{\mathrm{KL}}\!\left(\pi_{\theta}(a\vert s)\,\Vert\,\pi_{\theta_{\mathrm{old}}}(a\vert s)\right)\right] \le \delta
 \]
 
@@ -155,6 +157,110 @@ If one introduces PPO-style clipping on the ratio, one obtains the clipped surro
 \end{equation}
 
 recalling $\varepsilon>0$ is the PPO clipping parameter.
+
+\subsubsection{GRPO's Objective Reformulated With Gradients}
+\label{subsubsec:GRPO_objective_reformulated_gradients}
+
+This subsection makes the optimization signal in \eqref{eq:grpo_obj} explicit by differentiating it with respect to $\theta$.
+For a single context $s$ and a sampled group $\{a_i\}_{i=1}^{G}$ drawn from the behavior policy $\pi_{\theta_{\mathrm{old}}}$, recall \eqref{eq:importance_ratio} and \eqref{eq:grpo_log_ratio}.
+
+Recall the pointwise log-ratio in \eqref{eq:grpo_log_ratio} as a function of the sampled action $ \backepsilon \ell_i(\theta) = \ell(a_i,s;\theta)$.
+
+Since the denominator of $\rho_i(\theta)$ is independent of $\theta$,
+\begin{equation}
+    \nabla_{\theta}\,\rho_i(\theta)
+    =
+    \rho_i(\theta)\,\nabla_{\theta}\log \pi_{\theta}(a_i\vert s).
+    \label{eq:rho_grad}
+\end{equation}
+
+Similarly, because $\pi_{\mathrm{ref}}$ is fixed,
+\begin{equation}
+    \nabla_{\theta}\,\ell_i(\theta)
+    =
+    \nabla_{\theta}\log \pi_{\theta}(a_i\vert s).
+    \label{eq:ell_grad}
+\end{equation}
+
+The term $\nabla_{\theta}\log \pi_{\theta}(a\vert s)$ is the Jacobian of the scalar log-likelihood with respect to the parameter vector $\theta$.
+This is the sense in which policy-gradient updates are ``first-order'': the Jacobian, the gradient, gives the local sensitivity of the log-probability to an infinitesimal parameter change, and therefore determines the immediate direction of improvement.
+
+Consequently, for a small step $\Delta\theta$, a first-order expansion gives
+\[
+    \log \pi_{\theta}(a\vert s)
+    \approx
+    \log \pi_{\theta_{\mathrm{old}}}(a\vert s)
+    +
+    \big(\nabla_{\theta}\log \pi_{\theta}(a\vert s)\big)^{\top}\!\Delta\theta,
+\]
+making explicit that the update is driven by this first-order sensitivity called the score function.
+
+Plugging \eqref{eq:rho_grad} \& \eqref{eq:ell_grad} into \eqref{eq:grpo_obj} yields a policy-gradient form:
+\begin{align}
+    \nabla_{\theta}\,\mathcal{J}_{\mathrm{GRPO}}(\theta)
+    &\approx
+    \EX_{s, a_{1:G}\vert \pi_{\theta_{\mathrm{old}}}}
+    \left[
+        \frac{1}{G}\sum_{i=1}^{G}
+        \Big(
+            \rho_i(\theta)\,\tilde{A}_i
+            -
+            \beta
+        \Big)
+        \nabla_{\theta}\log \pi_{\theta}(a_i\vert s)
+    \right].
+    \label{eq:grpo_grad}
+\end{align}
+
+\eqref{eq:grpo_grad} makes two points immediate.
+
+\noindent\textbf{1. The reference policy does not contribute gradients.}
+
+Although $\ell_i(\theta)$ is written as a log-ratio against $\pi_{\mathrm{ref}}$, the gradient of the regularizer depends only on $\nabla_{\theta}\log \pi_{\theta}$.
+In particular,
+\begin{equation}
+    \nabla_{\theta}\,\EX_{a\sim \pi_{\theta_{\mathrm{old}}}(a\vert s)}\big[\beta\,\ell(a,s;\theta)\big]
+    =
+    \beta\,\EX_{a\sim \pi_{\theta_{\mathrm{old}}}(a\vert s)}\big[\nabla_{\theta}\log \pi_{\theta}(a\vert s)\big].
+    \label{eq:ref_no_grad}
+\end{equation}
+The term $\log \pi_{\mathrm{ref}}(a\vert s)$ is constant with respect to $\theta$ and therefore disappears under differentiation.
+
+\noindent\textbf{2. The regularizer is a forward-KL-style penalty under the behavior distribution.}
+
+Define, for any fixed $s$, the forward KL
+\begin{equation}
+    D_{\mathrm{KL}}\!\left(\pi_{\theta_{\mathrm{old}}}(a\vert s)\,\Vert\,\pi_{\theta}(a\vert s)\right)
+    \doteq
+    \EX_{a\sim \pi_{\theta_{\mathrm{old}}}(a\vert s)}\!\left[\log \frac{\pi_{\theta_{\mathrm{old}}}(a\vert s)}{\pi_{\theta}(a\vert s)}\right].
+    \label{eq:forward_kl_old_new}
+\end{equation}
+Since $\EX_{\pi_{\theta_{\mathrm{old}}}}[\log \pi_{\theta_{\mathrm{old}}}]$ does not depend on $\theta$, we have
+\begin{equation}
+    \nabla_{\theta}\,D_{\mathrm{KL}}\!\left(\pi_{\theta_{\mathrm{old}}}(a\vert s)\,\Vert\,\pi_{\theta}(a\vert s)\right)
+    =
+    -\EX_{a\sim \pi_{\theta_{\mathrm{old}}}(a\vert s)}\big[\nabla_{\theta}\log \pi_{\theta}(a\vert s)\big].
+    \label{eq:forward_kl_grad}
+\end{equation}
+Comparing \eqref{eq:forward_kl_grad} with \eqref{eq:ref_no_grad} shows that GRPO's log-ratio regularizer induces the same gradient, up to a sign, as minimizing a forward KL from the behavior policy into the current policy.
+Equivalently, the regularizer in \eqref{eq:grpo_obj} acts as a cross-entropy term $-\EX_{\pi_{\theta_{\mathrm{old}}}}[\log \pi_{\theta}]$.
+
+\subsubsection{Hessians \& The Trust-Region Interpretation}
+\label{subsubsec:trust_region_hessians}
+Trust-region methods motivate constraining policy changes via a KL divergence because, for small parameter steps $\Delta\theta \doteq \theta-\theta_{\mathrm{old}}$, the KL admits a local quadratic approximation.
+For each $s$, \eqref{eq:forward_kl_old_new} undergoes a second-order Taylor expansion around $\theta_{\mathrm{old}}$ to yield
+\begin{equation}
+    D_{\mathrm{KL}}\!\left(\pi_{\theta_{\mathrm{old}}}(a\vert s)\,\Vert\,\pi_{\theta}(a\vert s)\right)
+    \approx
+    \tfrac{1}{2}\,\Delta\theta^{\top}\,F_{s}(\theta_{\mathrm{old}})\,\Delta\theta,
+    \label{eq:kl_quadratic}
+\end{equation}
+where $F_{s}(\theta_{\mathrm{old}})$ is the conditional Fisher information matrix which is the Hessian of the KL at $\theta_{\mathrm{old}}$.
+This is the sense in which enforcing a KL trust region is ``second-order'': the Hessian imposes the curvature of the KL to determine the geometry of the update.
+
+By contrast, \eqref{eq:grpo_obj}'s GRPO regularizer contributes a first-order gradient term proportional to $\EX_{\pi_{\theta_{\mathrm{old}}}}[\nabla\log \pi_{\theta}]$.
+It does not implement the quadratic trust-region penalty in \eqref{eq:kl_quadratic} directly, and it cannot be interpreted as the gradient of a reverse KL to $\pi_{\mathrm{ref}}$ without changing the sampling distribution.
+
 
 \subsubsection{PPO vs GRPO}
 \label{subsubsec:PPO_vs_GRPO}
