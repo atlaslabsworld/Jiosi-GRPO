@@ -43,8 +43,6 @@
 
     This ratio plays the same mechanical role as in PPO; no novel estimator is introduced at this stage.
 
-    This is the same importance-weighted policy gradient structure used in PPO and TRPO, where updates are performed under an off-policy sampling distribution but corrected via likelihood ratios. In this sense, GRPO does not deviate from PPO at the level of gradient estimation; the distinction lies entirely in how the advantage signal is constructed and normalized.
-
     Separately, GRPO introduces an additional reference-anchored log-ratio term, which is \textit{not} the PPO importance ratio:
     $$
         \ell_i(\theta) \approx \log \pi_{\theta}(a_i\vert s) - \log \pi_{\mathrm{ref}}(a_i\vert s).
@@ -66,10 +64,9 @@
         \label{eq:KL_divergence}
     \end{equation}
 
+    As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this definition is only meaningful as a divergence when the expectation is taken under the same distribution whose deviation is being measured. When this expectation is replaced by off-policy sampling, the expression no longer represents a KL divergence in the information-theoretic sense, even though the pointwise logarithmic form remains unchanged.
 
-As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this definition is only meaningful as a divergence when the expectation is taken under the same distribution whose deviation is being measured. When this expectation is replaced by off-policy sampling, the expression no longer represents a KL divergence in the information-theoretic sense, even though the pointwise logarithmic form remains unchanged.
-
-    and for policies conditioned on context $s$,
+    For policies conditioned on context $s$,
     \[
         D_{\mathrm{KL}}\!\left(\pi_{\theta}(\cdot\vert s)\,\Vert\,\pi_{\mathrm{ref}}(\cdot\vert s)\right)
         =
@@ -91,7 +88,7 @@ As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this
     it becomes a KL divergence only after taking an expectation under the action distribution of the policy in the numerator.
     This distinction is exactly what matters when one later claims ``KL regularization'' while sampling actions under a different policy.
 
-    This mirrors the approximation already employed in PPO, where the KL term is used as a trust-region heuristic rather than as an unbiased divergence estimator. In both cases, stability arises from conservative updates rather than from exact optimization of a KL-constrained objective.
+    This mirrors the approximation already employed in PPO, where the KL term is used as a trust-region heuristic rather than as an unbiased estimator under the target policy measure. In both cases, stability arises from conservative updates rather than from exact optimization of a KL-constrained objective.
 
     Rewriting DeepSeek's GRPO objective to make its assumptions explicit, and placing it side-by-side with the PPO surrogate objective, one obtains:
     
@@ -131,7 +128,7 @@ As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this
     \medskip
 
     As detailed in \hyperref[sec:GRPO_reformulation]{Section~\ref{sec:GRPO_reformulation}}, this is better understood as the use of a stability proxy under imperfect modeling assumptions rather than as a literal failure of KL-regularized policy optimization.
-    The method does not fail because it misuses the KL divergence; rather, the misuse reflects a deeper issue: the optimization objective is a proxy for stability, not a literal instantiation of an MDP-constrained problem.
+    The method does not fail; rather, the KL terminology obscures the deeper point: the written objective is a proxy for stability, not a literal instantiation of a KL-constrained optimization problem.
 
     Secondly, GRPO is closely related to PPO-style trust-region optimization. If one introduces PPO clipping on the ratio, one obtains the clipped surrogate:
     
@@ -152,7 +149,7 @@ As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this
     \subsection{PPO vs GRPO}
     \label{subsec:PPO_vs_GRPO}
 
-    GRPO retains the core PPO mechanisms under-the-hood.
+    GRPO retains the core PPO mechanisms under the hood.
     The update still uses importance sampling ratios, a clipped surrogate objective function, and trust-region like behavior that keeps steps small in practice.
 
     The substantive difference lies in GRPO removing the learned value function by replacing generalized advantage estimation style advantage estimation with group-normalized rewards, hence the nomenclature paradigm \textit{Group Relative Policy Optimization}.
@@ -168,11 +165,11 @@ As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this
     \subsection{What Went Wrong}
     \label{sec:deepseek_grpo_intro}
 
-    DeepSeek's GRPO's objective function is described as a KL-regularized variant of PPO.
+    DeepSeek describes GRPO as a KL-regularized variant of PPO.
     While the algorithm is empirically effective, the formulation conflates several distinct quantities, leading to a misleading interpretation of the regularization term as written in the paper.
     This section should be read as a concrete instantiation of the modeling/notation lens developed in Warren Powell's Unified Decision Analysis Framework \cite{powell2022unified}.
 
-    \subsection{Pointwise Log-Ratios $\not\doteq$ KL Divergences}
+    \subsection{\texorpdfstring{Pointwise Log-Ratios $\not\doteq$ KL Divergences}{Pointwise Log-Ratios are not KL Divergences}}
     \label{sec:grpo_pointwise}
 
     Recall: the Kullback-Leibler divergence between two policies $\pi_\theta$ and $\pi_{\mathrm{ref}}$
@@ -208,13 +205,11 @@ As formalized in \hyperref[eq:KL_divergence]{Eq.~\eqref{eq:KL_divergence}}, this
 
     Consequently, three critical issues arise.
 
-    First off, the surrogate is not, in general, an unbiased estimator of $D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})$ because the expectation is taken under $\pi_{\theta_{\mathrm{old}}}$ rather than $\pi_\theta$.
+    First, the surrogate is not, in general, an unbiased estimator of $D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})$ because the expectation is taken under $\pi_{\theta_{\mathrm{old}}}$ rather than $\pi_\theta$.
 
-    Secondly, the usual control-variate interpretation does not strictly apply, because the expectation is taken under a different measure than the one defining the KL; this does not make the method incorrect, but it does invalidate a literal KL interpretation.
+    Second, the usual control-variate interpretation does not strictly apply because the expectation is taken under a different measure than the one defining the KL; this does not make the method incorrect, but it does invalidate a literal KL interpretation.
 
     Finally, even though the surrogate is nonnegative, that property is orthogonal to whether it estimates the claimed KL divergence.
-
-    In contrast, PPO implementations that monitor or penalize KL divergence either compute it exactly from logits or ensure the expectation is taken under the correct policy distribution.
 
     \subsection{Practical Implications}
     \label{sec:grpo_practical}
