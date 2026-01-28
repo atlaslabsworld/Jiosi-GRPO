@@ -181,7 +181,7 @@ In short, GRPO inherits PPO's stability heuristics but not its theoretical KL in
     \label{sec:grpo_pointwise}
 
     This is the key distinction: a log-ratio evaluated at a single sample is not a divergence, but merely a scalar random variable.
-    Recall the Kullback-Leibler divergence definition between two policies $\pi_\theta$ and $\pi_{\mathrm{ref}}$ in \eqref{eg:kl_divergence_conditional}: without the expectation under $\pi_\theta$, 
+    Recall the Kullback-Leibler divergence definition between two policies $\pi_\theta$ and $\pi_{\mathrm{ref}}$ in \eqref{eq:kl_divergence_conditional}: without the expectation under $\pi_\theta$, 
     the quantity $\log\!\left(\frac{\pi_\theta}{\pi_{\mathrm{ref}}}\right)$ is simply a log-likelihood ratio.
     DeepSeek's reference to a single-sample realization of this ratio as ``the KL'' is misleading at best and formally incorrect at worst.
 
